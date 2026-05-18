@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Balance Float</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="titlebar">
+      <div class="drag">
+        <span class="dot"></span>
+        <strong>余额</strong>
+      </div>
+      <nav>
+        <button id="refresh" title="刷新">↻</button>
+        <button id="settingsToggle" title="设置">⚙</button>
+        <button id="hide" title="隐藏">×</button>
+      </nav>
+    </header>
+
+    <section id="balances" class="balances"></section>
+    <div id="empty" class="empty">请先填写 API Key</div>
+    <footer>
+      <span id="checkedAt">未刷新</span>
+      <button id="quit">退出</button>
+    </footer>
+
+    <section id="settings" class="settings hidden">
+      <label>
+        <span>DeepSeek API Key</span>
+        <input id="deepseekKey" type="password" placeholder="留空则保持原值">
+        <small id="deepseekMasked"></small>
+      </label>
+      <label>
+        <span>Vultr API Key</span>
+        <input id="vultrKey" type="password" placeholder="留空则保持原值">
+        <small id="vultrMasked"></small>
+      </label>
+      <div class="grid">
+        <label>
+          <span>刷新分钟</span>
+          <input id="refreshMinutes" type="number" min="1" max="1440">
+        </label>
+        <label>
+          <span>透明度</span>
+          <input id="opacity" type="range" min="0.35" max="1" step="0.01">
+        </label>
+      </div>
+      <label class="check">
+        <input id="autoStart" type="checkbox">
+        <span>开机自启</span>
+      </label>
+      <label class="check">
+        <input id="startHidden" type="checkbox">
+        <span>启动时隐藏到托盘</span>
+      </label>
+      <button id="save" class="primary">保存设置</button>
+    </section>
+  </main>
+  <script src="./renderer.js"></script>
+</body>
+</html>

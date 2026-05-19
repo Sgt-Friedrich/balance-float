@@ -2,16 +2,31 @@ const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, safeStorag
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
+const crypto = require('crypto');
 
 const CONFIG_NAME = 'config.json';
 const DEFAULT_CONFIG = {
   deepseekKey: '',
   vultrKey: '',
+  aliyunAccessKeyId: '',
+  aliyunAccessKeySecret: '',
+  aliyunRegion: 'cn-hangzhou',
+  tencentSecretId: '',
+  tencentSecretKey: '',
+  tencentRegion: 'ap-guangzhou',
   refreshMinutes: 15,
   opacity: 0.86,
   autoStart: false,
   startHidden: false
 };
+const SECRET_FIELDS = [
+  'deepseekKey',
+  'vultrKey',
+  'aliyunAccessKeyId',
+  'aliyunAccessKeySecret',
+  'tencentSecretId',
+  'tencentSecretKey'
+];
 
 let tray;
 let win;
@@ -45,12 +60,11 @@ function decryptSecret(value) {
 function readConfig() {
   try {
     const raw = JSON.parse(fs.readFileSync(configPath(), 'utf8'));
-    return {
-      ...DEFAULT_CONFIG,
-      ...raw,
-      deepseekKey: decryptSecret(raw.deepseekKey),
-      vultrKey: decryptSecret(raw.vultrKey)
-    };
+    const config = { ...DEFAULT_CONFIG, ...raw };
+    SECRET_FIELDS.forEach((field) => {
+      config[field] = decryptSecret(raw[field]);
+    });
+    return config;
   } catch {
     return { ...DEFAULT_CONFIG };
   }
@@ -61,10 +75,11 @@ function writeConfig(config) {
     ...DEFAULT_CONFIG,
     ...config,
     refreshMinutes: Math.max(1, Number(config.refreshMinutes) || DEFAULT_CONFIG.refreshMinutes),
-    opacity: Math.min(1, Math.max(0.35, Number(config.opacity) || DEFAULT_CONFIG.opacity)),
-    deepseekKey: encryptSecret(config.deepseekKey),
-    vultrKey: encryptSecret(config.vultrKey)
+    opacity: Math.min(1, Math.max(0.35, Number(config.opacity) || DEFAULT_CONFIG.opacity))
   };
+  SECRET_FIELDS.forEach((field) => {
+    persisted[field] = encryptSecret(config[field]);
+  });
   fs.mkdirSync(path.dirname(configPath()), { recursive: true });
   fs.writeFileSync(configPath(), JSON.stringify(persisted, null, 2), 'utf8');
 }
@@ -77,41 +92,41 @@ function maskKey(key) {
 
 function publicConfig() {
   const config = readConfig();
-  return {
-    ...config,
-    deepseekKeyMasked: maskKey(config.deepseekKey),
-    vultrKeyMasked: maskKey(config.vultrKey),
-    deepseekKey: '',
-    vultrKey: ''
-  };
+  const result = { ...config };
+  SECRET_FIELDS.forEach((field) => {
+    result[`${field}Masked`] = maskKey(config[field]);
+    result[field] = '';
+  });
+  return result;
 }
 
-function requestJson(url, token) {
+function httpJson(url, options = {}, body = null) {
   return new Promise((resolve, reject) => {
     const req = https.request(url, {
-      method: 'GET',
+      ...options,
+      method: options.method || 'GET',
       headers: {
-        Authorization: `Bearer ${token}`,
         Accept: 'application/json',
-        'User-Agent': 'Balance-Float/1.0'
+        'User-Agent': 'Balance-Float/1.0',
+        ...(options.headers || {})
       },
       timeout: 15000
     }, (res) => {
-      let body = '';
+      let responseBody = '';
       res.setEncoding('utf8');
       res.on('data', (chunk) => {
-        body += chunk;
+        responseBody += chunk;
       });
       res.on('end', () => {
         let json = {};
         try {
-          json = body ? JSON.parse(body) : {};
+          json = responseBody ? JSON.parse(responseBody) : {};
         } catch {
           reject(new Error(`HTTP ${res.statusCode}: invalid JSON`));
           return;
         }
         if (res.statusCode < 200 || res.statusCode >= 300) {
-          const message = json.error?.message || json.message || body || `HTTP ${res.statusCode}`;
+          const message = json.error?.message || json.message || json.Response?.Error?.Message || responseBody || `HTTP ${res.statusCode}`;
           reject(new Error(message));
           return;
         }
@@ -120,8 +135,211 @@ function requestJson(url, token) {
     });
     req.on('timeout', () => req.destroy(new Error('request timeout')));
     req.on('error', reject);
+    if (body) req.write(body);
     req.end();
   });
+}
+
+function requestJson(url, token) {
+  return httpJson(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+      'User-Agent': 'Balance-Float/1.0'
+    }
+  });
+}
+
+function postJson(url, headers, payload) {
+  const body = JSON.stringify(payload);
+  return httpJson(url, {
+    method: 'POST',
+    headers: {
+      ...headers,
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Length': Buffer.byteLength(body),
+      Accept: 'application/json',
+      'User-Agent': 'Balance-Float/1.0'
+    }
+  }, body);
+}
+
+function percentEncode(value) {
+  return encodeURIComponent(String(value))
+    .replace(/!/g, '%21')
+    .replace(/'/g, '%27')
+    .replace(/\(/g, '%28')
+    .replace(/\)/g, '%29')
+    .replace(/\*/g, '%2A');
+}
+
+function aliyunSignedUrl(action, params, accessKeyId, accessKeySecret, region) {
+  const query = {
+    Action: action,
+    Version: '2014-05-26',
+    Format: 'JSON',
+    AccessKeyId: accessKeyId,
+    SignatureMethod: 'HMAC-SHA1',
+    Timestamp: new Date().toISOString(),
+    SignatureVersion: '1.0',
+    SignatureNonce: crypto.randomUUID(),
+    RegionId: region,
+    ...params
+  };
+  const canonical = Object.keys(query)
+    .sort()
+    .map((key) => `${percentEncode(key)}=${percentEncode(query[key])}`)
+    .join('&');
+  const stringToSign = `GET&%2F&${percentEncode(canonical)}`;
+  query.Signature = crypto
+    .createHmac('sha1', `${accessKeySecret}&`)
+    .update(stringToSign)
+    .digest('base64');
+  const signed = Object.keys(query)
+    .sort()
+    .map((key) => `${percentEncode(key)}=${percentEncode(query[key])}`)
+    .join('&');
+  return `https://ecs.${region}.aliyuncs.com/?${signed}`;
+}
+
+async function fetchAliyunServers(config) {
+  const data = await httpJson(aliyunSignedUrl('DescribeInstances', { PageSize: 50 }, config.aliyunAccessKeyId, config.aliyunAccessKeySecret, config.aliyunRegion));
+  const instances = data.Instances?.Instance || [];
+  return instances.map((instance) => {
+    const publicIp = instance.PublicIpAddress?.IpAddress?.[0] || instance.EipAddress?.IpAddress || '';
+    return {
+      provider: 'Aliyun',
+      name: instance.InstanceName || instance.InstanceId,
+      status: instance.Status || 'Unknown',
+      region: instance.RegionId || config.aliyunRegion,
+      ip: publicIp,
+      detail: `${instance.InstanceType || ''}${instance.ZoneId ? ` / ${instance.ZoneId}` : ''}`.trim()
+    };
+  });
+}
+
+function tencentSign(secretKey, date, service, stringToSign) {
+  const secretDate = crypto.createHmac('sha256', `TC3${secretKey}`).update(date).digest();
+  const secretService = crypto.createHmac('sha256', secretDate).update(service).digest();
+  const secretSigning = crypto.createHmac('sha256', secretService).update('tc3_request').digest();
+  return crypto.createHmac('sha256', secretSigning).update(stringToSign).digest('hex');
+}
+
+async function tencentPost(action, version, region, secretId, secretKey, payload) {
+  const host = 'cvm.tencentcloudapi.com';
+  const service = 'cvm';
+  const timestamp = Math.floor(Date.now() / 1000);
+  const date = new Date(timestamp * 1000).toISOString().slice(0, 10);
+  const body = JSON.stringify(payload);
+  const hashedPayload = crypto.createHash('sha256').update(body).digest('hex');
+  const canonicalHeaders = `content-type:application/json; charset=utf-8\nhost:${host}\n`;
+  const canonicalRequest = `POST\n/\n\n${canonicalHeaders}\ncontent-type;host\n${hashedPayload}`;
+  const credentialScope = `${date}/${service}/tc3_request`;
+  const stringToSign = `TC3-HMAC-SHA256\n${timestamp}\n${credentialScope}\n${crypto.createHash('sha256').update(canonicalRequest).digest('hex')}`;
+  const signature = tencentSign(secretKey, date, service, stringToSign);
+  const authorization = `TC3-HMAC-SHA256 Credential=${secretId}/${credentialScope}, SignedHeaders=content-type;host, Signature=${signature}`;
+  const data = await postJson(`https://${host}`, {
+    Authorization: authorization,
+    Host: host,
+    'X-TC-Action': action,
+    'X-TC-Version': version,
+    'X-TC-Region': region,
+    'X-TC-Timestamp': String(timestamp)
+  }, payload);
+  if (data.Response?.Error) throw new Error(data.Response.Error.Message || data.Response.Error.Code);
+  return data.Response || {};
+}
+
+async function fetchTencentServers(config) {
+  const data = await tencentPost('DescribeInstances', '2017-03-12', config.tencentRegion, config.tencentSecretId, config.tencentSecretKey, { Limit: 100, Offset: 0 });
+  const instances = data.InstanceSet || [];
+  return instances.map((instance) => ({
+    provider: 'Tencent',
+    name: instance.InstanceName || instance.InstanceId,
+    status: instance.InstanceState || 'Unknown',
+    region: instance.Placement?.Zone || config.tencentRegion,
+    ip: instance.PublicIpAddresses?.[0] || '',
+    detail: `${instance.InstanceType || ''}${instance.PrivateIpAddresses?.[0] ? ` / 内网 ${instance.PrivateIpAddresses[0]}` : ''}`.trim()
+  }));
+}
+
+async function fetchVultrServers(config) {
+  const data = await requestJson('https://api.vultr.com/v2/instances?per_page=100', config.vultrKey);
+  return (data.instances || []).map((instance) => ({
+    provider: 'Vultr',
+    name: instance.label || instance.hostname || instance.id,
+    status: instance.power_status || instance.status || 'unknown',
+    region: instance.region || '',
+    ip: instance.main_ip || '',
+    detail: `${instance.plan || ''}${instance.status ? ` / ${instance.status}` : ''}`.trim()
+  }));
+}
+
+async function fetchDeepSeekServiceStatus() {
+  try {
+    const data = await httpJson('https://status.deepseek.com/api/v2/status.json');
+    return [{
+      provider: 'DeepSeek',
+      name: 'API 服务',
+      status: data.status?.indicator || 'unknown',
+      region: 'status.deepseek.com',
+      ip: '',
+      detail: data.status?.description || ''
+    }];
+  } catch (error) {
+    return [{
+      provider: 'DeepSeek',
+      name: 'API 服务',
+      status: 'unknown',
+      region: 'status.deepseek.com',
+      ip: '',
+      detail: error.message
+    }];
+  }
+}
+
+async function refreshServers() {
+  const config = readConfig();
+  const jobs = [fetchDeepSeekServiceStatus()];
+  const jobNames = ['DeepSeek'];
+  if (config.vultrKey) {
+    jobs.push(fetchVultrServers(config));
+    jobNames.push('Vultr');
+  }
+  if (config.aliyunAccessKeyId && config.aliyunAccessKeySecret) {
+    jobs.push(fetchAliyunServers(config));
+    jobNames.push('Aliyun');
+  }
+  if (config.tencentSecretId && config.tencentSecretKey) {
+    jobs.push(fetchTencentServers(config));
+    jobNames.push('Tencent');
+  }
+
+  const checkedAt = new Date().toLocaleString('zh-CN', { hour12: false });
+  const settled = await Promise.allSettled(jobs);
+  const items = [];
+  settled.forEach((result, index) => {
+    if (result.status === 'fulfilled') {
+      items.push(...result.value);
+      return;
+    }
+    items.push({
+      provider: jobNames[index],
+      name: '实例列表',
+      status: '获取失败',
+      region: '',
+      ip: '',
+      detail: result.reason?.message || '未知错误'
+    });
+  });
+  const payload = {
+    checkedAt,
+    items,
+    message: jobs.length === 1 ? '填写 Vultr / 阿里云 / 腾讯云密钥后可查看云服务器实例' : ''
+  };
+  if (win && !win.isDestroyed()) win.webContents.send('servers:update', payload);
+  return payload;
 }
 
 async function fetchDeepSeek(key) {
@@ -179,6 +397,10 @@ async function refreshBalances() {
   return lastPayload;
 }
 
+async function refreshAll() {
+  await Promise.allSettled([refreshBalances(), refreshServers()]);
+}
+
 function positionWindow() {
   if (!win) return;
   const display = screen.getPrimaryDisplay().workArea;
@@ -190,7 +412,7 @@ function createWindow() {
   const config = readConfig();
   win = new BrowserWindow({
     width: 330,
-    height: 230,
+    height: 430,
     frame: false,
     resizable: false,
     transparent: true,
@@ -208,7 +430,7 @@ function createWindow() {
   win.once('ready-to-show', () => {
     positionWindow();
     if (!config.startHidden) win.show();
-    refreshBalances();
+    refreshAll();
   });
   win.on('blur', () => {
     if (readConfig().startHidden) return;
@@ -232,7 +454,7 @@ function updateTray() {
   tray.setToolTip(status);
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '显示余额窗', click: showWindow },
-    { label: '立即刷新', click: refreshBalances },
+    { label: '立即刷新', click: refreshAll },
     { label: '隐藏', click: hideWindow },
     { type: 'separator' },
     { label: '退出', click: () => app.quit() }
@@ -241,7 +463,7 @@ function updateTray() {
 
 function scheduleRefresh(minutes) {
   if (refreshTimer) clearInterval(refreshTimer);
-  refreshTimer = setInterval(refreshBalances, Math.max(1, minutes) * 60 * 1000);
+  refreshTimer = setInterval(refreshAll, Math.max(1, minutes) * 60 * 1000);
 }
 
 function createTray() {
@@ -265,18 +487,20 @@ ipcMain.handle('config:save', (_event, patch) => {
   const current = readConfig();
   const next = {
     ...current,
-    ...patch,
-    deepseekKey: patch.deepseekKey || current.deepseekKey,
-    vultrKey: patch.vultrKey || current.vultrKey
+    ...patch
   };
+  SECRET_FIELDS.forEach((field) => {
+    next[field] = patch[field] || current[field];
+  });
   writeConfig(next);
   syncLoginItem(next.autoStart);
   if (win) win.setOpacity(next.opacity);
   scheduleRefresh(next.refreshMinutes);
-  refreshBalances();
+  refreshAll();
   return publicConfig();
 });
 ipcMain.handle('balances:refresh', refreshBalances);
+ipcMain.handle('servers:refresh', refreshServers);
 ipcMain.handle('window:hide', hideWindow);
 ipcMain.handle('window:quit', () => app.quit());
 

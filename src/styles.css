@@ -73,7 +73,37 @@ button:hover {
   background: rgba(255, 255, 255, 0.18);
 }
 
+.tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.tab {
+  width: 100%;
+  height: 28px;
+  color: #b9c5c1;
+}
+
+.tab.active {
+  color: #f7f4ec;
+  background: rgba(97, 211, 148, 0.2);
+}
+
+.view {
+  height: 298px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
 .balances {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.servers {
   display: grid;
   gap: 8px;
   margin-top: 8px;
@@ -81,6 +111,13 @@ button:hover {
 
 .balance {
   padding: 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.server {
+  padding: 10px;
+  border-left: 3px solid #62a4ff;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.08);
 }
@@ -111,7 +148,15 @@ button:hover {
   color: #b9c5c1;
 }
 
+.server span {
+  color: #b9c5c1;
+}
+
 .balance strong {
+  color: #f7f4ec;
+}
+
+.server strong {
   color: #f7f4ec;
 }
 
@@ -120,7 +165,14 @@ button:hover {
   font-size: 18px;
 }
 
+.server p {
+  margin: 8px 0 5px;
+  color: #f7f4ec;
+  font-size: 13px;
+}
+
 .balance small,
+.server small,
 label small,
 footer {
   color: #b9c5c1;
@@ -178,7 +230,8 @@ label {
 }
 
 input[type="password"],
-input[type="number"] {
+input[type="number"],
+input[type="text"] {
   width: 100%;
   min-width: 0;
   height: 28px;

@@ -92,6 +92,41 @@ function maskKey(key) {
   return `${key.slice(0, 4)}...${key.slice(-4)}`;
 }
 
+function formatUsd(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return '未知';
+  return `$${Math.abs(amount).toFixed(2)}`;
+}
+
+function formatSignedUsd(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return '未知';
+  return `${amount < 0 ? '-' : ''}${formatUsd(amount)}`;
+}
+
+function formatGb(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return '未知';
+  if (amount >= 1024) return `${(amount / 1024).toFixed(2)} TB`;
+  return `${amount.toFixed(amount >= 10 ? 1 : 2)} GB`;
+}
+
+function bytesToGb(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return 0;
+  return amount / 1024 / 1024 / 1024;
+}
+
+function sumBandwidthGb(bandwidth) {
+  return Object.values(bandwidth || {}).reduce((total, day) => {
+    return total + bytesToGb(day.incoming_bytes) + bytesToGb(day.outgoing_bytes);
+  }, 0);
+}
+
+function metric(label, value) {
+  return { label, value };
+}
+
 function publicConfig() {
   const config = readConfig();
   const result = { ...config };
@@ -262,13 +297,35 @@ async function fetchTencentServers(config) {
 
 async function fetchVultrServers(config) {
   const data = await requestJson('https://api.vultr.com/v2/instances?per_page=100', config.vultrKey);
-  return (data.instances || []).map((instance) => ({
-    provider: 'Vultr',
-    name: instance.label || instance.hostname || instance.id,
-    status: instance.power_status || instance.status || 'unknown',
-    region: instance.region || '',
-    ip: instance.main_ip || '',
-    detail: `${instance.plan || ''}${instance.status ? ` / ${instance.status}` : ''}`.trim()
+  return Promise.all((data.instances || []).map(async (instance) => {
+    let bandwidthDetail = '流量 暂无数据';
+    let bandwidthMetric = metric('流量', '未知');
+    try {
+      const bandwidthData = await requestJson(`https://api.vultr.com/v2/instances/${instance.id}/bandwidth?date_range=31`, config.vultrKey);
+      const usedGb = sumBandwidthGb(bandwidthData.bandwidth);
+      const allowedGb = Number(instance.allowed_bandwidth);
+      const remainingGb = Number.isFinite(allowedGb) ? Math.max(allowedGb - usedGb, 0) : null;
+      bandwidthMetric = metric('流量', Number.isFinite(allowedGb) ? `${formatGb(usedGb)} / ${formatGb(allowedGb)}` : formatGb(usedGb));
+      bandwidthDetail = Number.isFinite(allowedGb)
+        ? `流量已用 ${formatGb(usedGb)}, 剩余 ${formatGb(remainingGb)}`
+        : `流量已用 ${formatGb(usedGb)}`;
+    } catch (error) {
+      bandwidthDetail = `流量获取失败: ${error.message}`;
+    }
+    return {
+      provider: 'Vultr',
+      name: instance.label || instance.hostname || instance.id,
+      status: instance.power_status || instance.status || 'unknown',
+      region: instance.region || '',
+      ip: instance.main_ip || '',
+      detail: `${bandwidthDetail}\n${instance.plan || ''}${instance.status ? ` / ${instance.status}` : ''}`,
+      metrics: [
+        bandwidthMetric,
+        metric('CPU', `${instance.vcpu_count ?? '未知'} C`),
+        metric('内存', Number.isFinite(Number(instance.ram)) ? `${formatGb(Number(instance.ram) / 1024)}` : '未知'),
+        metric('磁盘', Number.isFinite(Number(instance.disk)) ? `${instance.disk} GB` : '未知')
+      ]
+    };
   }));
 }
 
@@ -354,12 +411,21 @@ async function fetchDeepSeek(key) {
 async function fetchVultr(key) {
   const data = await requestJson('https://api.vultr.com/v2/account', key);
   const account = data.account || {};
+  const balance = Number(account.balance);
+  const pendingCharges = Number(account.pending_charges);
+  const net = balance + pendingCharges;
+  const hasNumbers = Number.isFinite(balance) && Number.isFinite(pendingCharges);
+  const primary = hasNumbers && net < 0
+    ? `剩余额度 ${formatUsd(net)}`
+    : hasNumbers
+      ? `预计应付 ${formatUsd(net)}`
+      : `账面余额 ${account.balance ?? '未知'}`;
   return {
     name: 'Vultr',
     ok: true,
     available: true,
-    primary: `余额 ${account.balance ?? '未知'}`,
-    detail: `待结算 ${account.pending_charges ?? '未知'}${account.last_payment_date ? `\n上次付款 ${account.last_payment_date}` : ''}`
+    primary,
+    detail: `账面余额 ${formatSignedUsd(account.balance)}, 本月待结算 ${formatUsd(account.pending_charges)}${account.last_payment_date ? `\n上次付款 ${account.last_payment_date}` : ''}`
   };
 }
 

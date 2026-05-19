@@ -61,6 +61,9 @@ function renderServers(payload) {
   items.forEach((item) => {
     const card = document.createElement('article');
     card.className = 'server';
+    const metrics = (item.metrics || [])
+      .map((entry) => `<span><b>${escapeHtml(entry.label)}</b>${escapeHtml(entry.value)}</span>`)
+      .join('');
     card.innerHTML = `
       <div class="balance-head">
         <span class="service">
@@ -70,6 +73,7 @@ function renderServers(payload) {
         <span class="status">${escapeHtml(item.status)}</span>
       </div>
       <p>${escapeHtml(item.provider)} · ${escapeHtml(item.region || '未知地域')}</p>
+      ${metrics ? `<div class="metrics">${metrics}</div>` : ''}
       <small>${escapeHtml(item.ip || '无公网 IP')}${item.detail ? `<br>${escapeHtml(item.detail)}` : ''}</small>
     `;
     servers.appendChild(card);

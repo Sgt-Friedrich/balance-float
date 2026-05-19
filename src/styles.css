@@ -209,6 +209,31 @@ button:hover {
   font-size: 13px;
 }
 
+.metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  margin: 8px 0;
+}
+
+.metrics span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #f7f4ec;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.metrics b {
+  color: #b9c5c1;
+  font-size: 10px;
+  font-weight: 500;
+}
+
 .balance small,
 .server small,
 label small,

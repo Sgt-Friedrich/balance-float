@@ -85,7 +85,7 @@ button:hover {
   background: rgba(255, 255, 255, 0.08);
 }
 
-.balance div {
+.balance-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -93,8 +93,26 @@ button:hover {
   font-size: 13px;
 }
 
+.service {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.service img {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  object-fit: contain;
+}
+
 .balance span {
   color: #b9c5c1;
+}
+
+.balance strong {
+  color: #f7f4ec;
 }
 
 .balance p {

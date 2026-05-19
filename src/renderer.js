@@ -1,5 +1,12 @@
 const $ = (id) => document.getElementById(id);
 
+function serviceIcon(name) {
+  const service = String(name || '').toLowerCase();
+  if (service.includes('deepseek')) return '../assets/deepseek.svg';
+  if (service.includes('vultr')) return '../assets/vultr.svg';
+  return '../assets/icon.png';
+}
+
 function render(payload) {
   const balances = $('balances');
   const empty = $('empty');
@@ -12,8 +19,11 @@ function render(payload) {
     const card = document.createElement('article');
     card.className = `balance ${item.ok ? 'ok' : 'bad'}`;
     card.innerHTML = `
-      <div>
-        <strong>${item.name}</strong>
+      <div class="balance-head">
+        <span class="service">
+          <img src="${serviceIcon(item.name)}" alt="${item.name} icon">
+          <strong>${item.name}</strong>
+        </span>
         <span>${item.available ? '可用' : '不可用'}</span>
       </div>
       <p>${item.primary}</p>

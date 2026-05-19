@@ -117,10 +117,16 @@ function bytesToGb(value) {
   return amount / 1024 / 1024 / 1024;
 }
 
-function sumBandwidthGb(bandwidth) {
-  return Object.values(bandwidth || {}).reduce((total, day) => {
-    return total + bytesToGb(day.incoming_bytes) + bytesToGb(day.outgoing_bytes);
-  }, 0);
+function summarizeBandwidthGb(bandwidth) {
+  const totals = Object.values(bandwidth || {}).reduce((summary, day) => {
+    summary.inbound += bytesToGb(day.incoming_bytes);
+    summary.outbound += bytesToGb(day.outgoing_bytes);
+    return summary;
+  }, { inbound: 0, outbound: 0 });
+  return {
+    ...totals,
+    usage: Math.max(totals.inbound, totals.outbound)
+  };
 }
 
 function metric(label, value) {
@@ -302,13 +308,13 @@ async function fetchVultrServers(config) {
     let bandwidthMetric = metric('流量', '未知');
     try {
       const bandwidthData = await requestJson(`https://api.vultr.com/v2/instances/${instance.id}/bandwidth?date_range=31`, config.vultrKey);
-      const usedGb = sumBandwidthGb(bandwidthData.bandwidth);
+      const used = summarizeBandwidthGb(bandwidthData.bandwidth);
       const allowedGb = Number(instance.allowed_bandwidth);
-      const remainingGb = Number.isFinite(allowedGb) ? Math.max(allowedGb - usedGb, 0) : null;
-      bandwidthMetric = metric('流量', Number.isFinite(allowedGb) ? `${formatGb(usedGb)} / ${formatGb(allowedGb)}` : formatGb(usedGb));
+      const remainingGb = Number.isFinite(allowedGb) ? Math.max(allowedGb - used.usage, 0) : null;
+      bandwidthMetric = metric('流量', Number.isFinite(allowedGb) ? `${formatGb(used.usage)} / ${formatGb(allowedGb)}` : formatGb(used.usage));
       bandwidthDetail = Number.isFinite(allowedGb)
-        ? `流量已用 ${formatGb(usedGb)}, 剩余 ${formatGb(remainingGb)}`
-        : `流量已用 ${formatGb(usedGb)}`;
+        ? `流量已用 ${formatGb(used.usage)}, 剩余 ${formatGb(remainingGb)}\n入站 ${formatGb(used.inbound)}, 出站 ${formatGb(used.outbound)}`
+        : `流量已用 ${formatGb(used.usage)}\n入站 ${formatGb(used.inbound)}, 出站 ${formatGb(used.outbound)}`;
     } catch (error) {
       bandwidthDetail = `流量获取失败: ${error.message}`;
     }

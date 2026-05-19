@@ -1,7 +1,6 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, safeStorage } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, safeStorage, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const https = require('https');
 const crypto = require('crypto');
 
 const CONFIG_NAME = 'config.json';
@@ -104,42 +103,36 @@ function publicConfig() {
 }
 
 function httpJson(url, options = {}, body = null) {
-  return new Promise((resolve, reject) => {
-    const req = https.request(url, {
-      ...options,
-      method: options.method || 'GET',
-      headers: {
-        Accept: 'application/json',
-        'User-Agent': 'Balance-Float/1.0',
-        ...(options.headers || {})
-      },
-      timeout: 15000
-    }, (res) => {
-      let responseBody = '';
-      res.setEncoding('utf8');
-      res.on('data', (chunk) => {
-        responseBody += chunk;
-      });
-      res.on('end', () => {
-        let json = {};
-        try {
-          json = responseBody ? JSON.parse(responseBody) : {};
-        } catch {
-          reject(new Error(`HTTP ${res.statusCode}: invalid JSON`));
-          return;
-        }
-        if (res.statusCode < 200 || res.statusCode >= 300) {
-          const message = json.error?.message || json.message || json.Response?.Error?.Message || responseBody || `HTTP ${res.statusCode}`;
-          reject(new Error(message));
-          return;
-        }
-        resolve(json);
-      });
-    });
-    req.on('timeout', () => req.destroy(new Error('request timeout')));
-    req.on('error', reject);
-    if (body) req.write(body);
-    req.end();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  return net.fetch(url, {
+    ...options,
+    method: options.method || 'GET',
+    headers: {
+      Accept: 'application/json',
+      'User-Agent': 'Balance-Float/1.0',
+      ...(options.headers || {})
+    },
+    body,
+    signal: controller.signal
+  }).then(async (res) => {
+    clearTimeout(timer);
+    const responseBody = await res.text();
+    let json = {};
+    try {
+      json = responseBody ? JSON.parse(responseBody) : {};
+    } catch {
+      throw new Error(`HTTP ${res.status}: invalid JSON`);
+    }
+    if (!res.ok) {
+      const message = json.error?.message || json.message || json.Response?.Error?.Message || responseBody || `HTTP ${res.status}`;
+      throw new Error(message);
+    }
+    return json;
+  }).catch((error) => {
+    clearTimeout(timer);
+    if (error.name === 'AbortError') throw new Error('request timeout');
+    throw error;
   });
 }
 

@@ -17,8 +17,11 @@ const DEFAULT_CONFIG = {
   refreshMinutes: 15,
   opacity: 0.86,
   autoStart: false,
-  startHidden: false
+  startHidden: false,
+  compactMode: false
 };
+const FULL_SIZE = { width: 330, height: 430 };
+const COMPACT_SIZE = { width: 190, height: 92 };
 const SECRET_FIELDS = [
   'deepseekKey',
   'vultrKey',
@@ -408,11 +411,20 @@ function positionWindow() {
   win.setPosition(display.x + display.width - width - 18, display.y + 18);
 }
 
+function applyCompactMode(compactMode) {
+  if (!win || win.isDestroyed()) return;
+  const size = compactMode ? COMPACT_SIZE : FULL_SIZE;
+  win.setSize(size.width, size.height);
+  positionWindow();
+  win.webContents.send('window:mode', { compactMode });
+}
+
 function createWindow() {
   const config = readConfig();
+  const size = config.compactMode ? COMPACT_SIZE : FULL_SIZE;
   win = new BrowserWindow({
-    width: 330,
-    height: 430,
+    width: size.width,
+    height: size.height,
     frame: false,
     resizable: false,
     transparent: true,
@@ -429,6 +441,7 @@ function createWindow() {
   win.loadFile(path.join(__dirname, 'renderer.html'));
   win.once('ready-to-show', () => {
     positionWindow();
+    applyCompactMode(config.compactMode);
     if (!config.startHidden) win.show();
     refreshAll();
   });
@@ -439,6 +452,7 @@ function createWindow() {
 
 function showWindow() {
   if (!win) createWindow();
+  applyCompactMode(readConfig().compactMode);
   positionWindow();
   win.show();
   win.focus();
@@ -455,6 +469,7 @@ function updateTray() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '显示余额窗', click: showWindow },
     { label: '立即刷新', click: refreshAll },
+    { label: readConfig().compactMode ? '完整模式' : '缩略模式', click: () => setCompactMode(!readConfig().compactMode) },
     { label: '隐藏', click: hideWindow },
     { type: 'separator' },
     { label: '退出', click: () => app.quit() }
@@ -482,6 +497,14 @@ function syncLoginItem(autoStart) {
   });
 }
 
+function setCompactMode(compactMode) {
+  const current = readConfig();
+  writeConfig({ ...current, compactMode: Boolean(compactMode) });
+  applyCompactMode(Boolean(compactMode));
+  updateTray();
+  return publicConfig();
+}
+
 ipcMain.handle('config:get', () => publicConfig());
 ipcMain.handle('config:save', (_event, patch) => {
   const current = readConfig();
@@ -495,12 +518,14 @@ ipcMain.handle('config:save', (_event, patch) => {
   writeConfig(next);
   syncLoginItem(next.autoStart);
   if (win) win.setOpacity(next.opacity);
+  applyCompactMode(next.compactMode);
   scheduleRefresh(next.refreshMinutes);
   refreshAll();
   return publicConfig();
 });
 ipcMain.handle('balances:refresh', refreshBalances);
 ipcMain.handle('servers:refresh', refreshServers);
+ipcMain.handle('window:compact', (_event, compactMode) => setCompactMode(compactMode));
 ipcMain.handle('window:hide', hideWindow);
 ipcMain.handle('window:quit', () => app.quit());
 

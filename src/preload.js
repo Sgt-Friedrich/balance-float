@@ -5,8 +5,10 @@ contextBridge.exposeInMainWorld('balanceApp', {
   saveConfig: (config) => ipcRenderer.invoke('config:save', config),
   refresh: () => ipcRenderer.invoke('balances:refresh'),
   refreshServers: () => ipcRenderer.invoke('servers:refresh'),
+  setCompactMode: (compactMode) => ipcRenderer.invoke('window:compact', compactMode),
   hide: () => ipcRenderer.invoke('window:hide'),
   quit: () => ipcRenderer.invoke('window:quit'),
   onUpdate: (callback) => ipcRenderer.on('balances:update', (_event, payload) => callback(payload)),
-  onServersUpdate: (callback) => ipcRenderer.on('servers:update', (_event, payload) => callback(payload))
+  onServersUpdate: (callback) => ipcRenderer.on('servers:update', (_event, payload) => callback(payload)),
+  onModeChange: (callback) => ipcRenderer.on('window:mode', (_event, payload) => callback(payload))
 });

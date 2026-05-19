@@ -1,4 +1,7 @@
 const $ = (id) => document.getElementById(id);
+let latestBalances = null;
+let latestServers = null;
+let compactMode = false;
 
 function serviceIcon(name) {
   const service = String(name || '').toLowerCase();
@@ -19,6 +22,7 @@ function escapeHtml(value) {
 }
 
 function render(payload) {
+  latestBalances = payload;
   const balances = $('balances');
   const empty = $('empty');
   balances.innerHTML = '';
@@ -42,9 +46,11 @@ function render(payload) {
     `;
     balances.appendChild(card);
   });
+  updateCompactSummary();
 }
 
 function renderServers(payload) {
+  latestServers = payload;
   const servers = $('servers');
   const empty = $('serversEmpty');
   servers.innerHTML = '';
@@ -68,6 +74,24 @@ function renderServers(payload) {
     `;
     servers.appendChild(card);
   });
+  updateCompactSummary();
+}
+
+function updateCompactSummary() {
+  const balanceItems = latestBalances?.items || [];
+  const serverItems = latestServers?.items || [];
+  const okBalances = balanceItems.filter((item) => item.ok).length;
+  const serverProblems = serverItems.filter((item) => {
+    const status = String(item.status || '').toLowerCase();
+    return status.includes('fail') || status.includes('error') || status.includes('stopped') || status.includes('unknown') || status.includes('获取失败');
+  }).length;
+  if (!balanceItems.length && !serverItems.length) {
+    $('compactPrimary').textContent = '未刷新';
+    $('compactSecondary').textContent = '点击刷新';
+    return;
+  }
+  $('compactPrimary').textContent = `${okBalances}/${balanceItems.length || 0} 余额 · ${serverItems.length} 状态`;
+  $('compactSecondary').textContent = serverProblems ? `${serverProblems} 项异常或未知` : '状态正常';
 }
 
 async function loadConfig() {
@@ -76,6 +100,7 @@ async function loadConfig() {
   $('opacity').value = config.opacity;
   $('autoStart').checked = config.autoStart;
   $('startHidden').checked = config.startHidden;
+  $('compactMode').checked = config.compactMode;
   $('aliyunRegion').value = config.aliyunRegion;
   $('tencentRegion').value = config.tencentRegion;
   $('deepseekMasked').textContent = config.deepseekKeyMasked ? `已保存 ${config.deepseekKeyMasked}` : '未保存';
@@ -86,7 +111,20 @@ async function loadConfig() {
   $('tencentSecretKeyMasked').textContent = config.tencentSecretKeyMasked ? `已保存 ${config.tencentSecretKeyMasked}` : '未保存';
 }
 
+function applyCompactMode(nextCompactMode) {
+  compactMode = Boolean(nextCompactMode);
+  document.body.classList.toggle('compact', compactMode);
+  $('compactPanel').classList.toggle('hidden', !compactMode);
+  $('balancesView').classList.toggle('hidden', compactMode || document.querySelector('.tab.active')?.dataset.view !== 'balances');
+  $('serversView').classList.toggle('hidden', compactMode || document.querySelector('.tab.active')?.dataset.view !== 'servers');
+  $('settings').classList.add('hidden');
+  $('compactToggle').textContent = compactMode ? '▢' : '▣';
+  $('compactToggle').title = compactMode ? '完整模式' : '缩略模式';
+  updateCompactSummary();
+}
+
 function setView(view) {
+  if (compactMode) return;
   $('balancesView').classList.toggle('hidden', view !== 'balances');
   $('serversView').classList.toggle('hidden', view !== 'servers');
   document.querySelectorAll('.tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.view === view));
@@ -99,6 +137,14 @@ $('refresh').addEventListener('click', async () => {
 $('hide').addEventListener('click', () => window.balanceApp.hide());
 $('quit').addEventListener('click', () => window.balanceApp.quit());
 $('settingsToggle').addEventListener('click', () => $('settings').classList.toggle('hidden'));
+$('compactToggle').addEventListener('click', async () => {
+  const config = await window.balanceApp.setCompactMode(!compactMode);
+  $('compactMode').checked = config.compactMode;
+});
+$('compactPanel').addEventListener('dblclick', async () => {
+  const config = await window.balanceApp.setCompactMode(false);
+  $('compactMode').checked = config.compactMode;
+});
 document.querySelectorAll('.tab').forEach((tab) => tab.addEventListener('click', () => setView(tab.dataset.view)));
 $('save').addEventListener('click', async () => {
   await window.balanceApp.saveConfig({
@@ -113,7 +159,8 @@ $('save').addEventListener('click', async () => {
     refreshMinutes: Number($('refreshMinutes').value),
     opacity: Number($('opacity').value),
     autoStart: $('autoStart').checked,
-    startHidden: $('startHidden').checked
+    startHidden: $('startHidden').checked,
+    compactMode: $('compactMode').checked
   });
   $('deepseekKey').value = '';
   $('vultrKey').value = '';
@@ -127,4 +174,8 @@ $('save').addEventListener('click', async () => {
 
 window.balanceApp.onUpdate(render);
 window.balanceApp.onServersUpdate(renderServers);
-loadConfig();
+window.balanceApp.onModeChange((payload) => applyCompactMode(payload.compactMode));
+loadConfig().then(async () => {
+  const config = await window.balanceApp.getConfig();
+  applyCompactMode(config.compactMode);
+});

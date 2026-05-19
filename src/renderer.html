@@ -15,10 +15,22 @@
       </div>
       <nav>
         <button id="refresh" title="刷新">↻</button>
+        <button id="compactToggle" title="缩略模式">▣</button>
         <button id="settingsToggle" title="设置">⚙</button>
         <button id="hide" title="隐藏">×</button>
       </nav>
     </header>
+
+    <section id="compactPanel" class="compact-panel hidden">
+      <div class="compact-icons">
+        <img src="../assets/deepseek.svg" alt="DeepSeek">
+        <img src="../assets/vultr.svg" alt="Vultr">
+        <img src="../assets/aliyun.svg" alt="Aliyun">
+        <img src="../assets/tencent.svg" alt="Tencent">
+      </div>
+      <strong id="compactPrimary">未刷新</strong>
+      <small id="compactSecondary">点击刷新</small>
+    </section>
 
     <div class="tabs">
       <button class="tab active" data-view="balances">余额</button>
@@ -94,6 +106,10 @@
       <label class="check">
         <input id="startHidden" type="checkbox">
         <span>启动时隐藏到托盘</span>
+      </label>
+      <label class="check">
+        <input id="compactMode" type="checkbox">
+        <span>默认缩略模式</span>
       </label>
       <button id="save" class="primary">保存设置</button>
     </section>

@@ -73,6 +73,41 @@ button:hover {
   background: rgba(255, 255, 255, 0.18);
 }
 
+.compact-panel {
+  display: grid;
+  gap: 4px;
+  align-content: center;
+  height: 44px;
+  margin-top: 4px;
+  -webkit-app-region: drag;
+}
+
+.compact-icons {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.compact-icons img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.compact-panel strong {
+  font-size: 13px;
+  line-height: 1.1;
+}
+
+.compact-panel small {
+  overflow: hidden;
+  color: #b9c5c1;
+  font-size: 10px;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -261,4 +296,42 @@ input[type="range"] {
 .primary {
   width: 100%;
   background: #2d7d63;
+}
+
+body.compact .shell {
+  padding: 8px;
+}
+
+body.compact .titlebar {
+  height: 22px;
+}
+
+body.compact .drag {
+  height: 22px;
+}
+
+body.compact .drag strong {
+  font-size: 12px;
+}
+
+body.compact button {
+  min-width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+body.compact #refresh,
+body.compact #settingsToggle,
+body.compact #hide,
+body.compact .tabs,
+body.compact .view,
+body.compact footer,
+body.compact .settings {
+  display: none;
+}
+
+body.compact .dot {
+  width: 7px;
+  height: 7px;
 }

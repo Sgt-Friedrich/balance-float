@@ -11,13 +11,14 @@ Windows 右上角半透明云资源悬浮窗，支持 DeepSeek、Vultr、阿里�
 - DeepSeek 读取 `/user/balance`，Vultr 读取 `/v2/account`。
 - 服务器视图支持 Vultr Instances、阿里云 ECS `DescribeInstances`、腾讯云 CVM `DescribeInstances`。
 - DeepSeek 在服务器视图中显示公开服务状态页结果。
+- 支持缩略模式，小窗只显示余额/服务器状态摘要，可一键切回完整模式。
 
 ## 使用
 
 直接运行：
 
 ```powershell
-.\release\"Balance Float 1.0.2.exe"
+.\release\"Balance Float 1.0.3.exe"
 ```
 
 开发运行：
@@ -34,4 +35,4 @@ $env:ELECTRON_BUILDER_BINARIES_MIRROR='https://npmmirror.com/mirrors/electron-bu
 npm.cmd run pack
 ```
 
-输出文件在 `release/Balance Float 1.0.2.exe`。
+输出文件在 `release/Balance Float 1.0.3.exe`。

@@ -21,7 +21,7 @@ const DEFAULT_CONFIG = {
   compactMode: false
 };
 const FULL_SIZE = { width: 330, height: 430 };
-const COMPACT_SIZE = { width: 190, height: 92 };
+const COMPACT_SIZE = { width: 136, height: 54 };
 const SECRET_FIELDS = [
   'deepseekKey',
   'vultrKey',
@@ -406,16 +406,27 @@ async function refreshAll() {
 
 function positionWindow() {
   if (!win) return;
-  const display = screen.getPrimaryDisplay().workArea;
   const [width, height] = win.getSize();
-  win.setPosition(display.x + display.width - width - 18, display.y + 18);
+  const bounds = targetBounds({ width, height });
+  win.setPosition(bounds.x, bounds.y);
+}
+
+function targetBounds(size) {
+  const display = screen.getPrimaryDisplay().workArea;
+  return {
+    x: display.x + display.width - size.width - 18,
+    y: display.y + 18,
+    width: size.width,
+    height: size.height
+  };
 }
 
 function applyCompactMode(compactMode) {
   if (!win || win.isDestroyed()) return;
   const size = compactMode ? COMPACT_SIZE : FULL_SIZE;
-  win.setSize(size.width, size.height);
-  positionWindow();
+  win.setMinimumSize(size.width, size.height);
+  win.setMaximumSize(size.width, size.height);
+  win.setBounds(targetBounds(size), false);
   win.webContents.send('window:mode', { compactMode });
 }
 
@@ -497,12 +508,22 @@ function syncLoginItem(autoStart) {
   });
 }
 
+function normalizeOpacity(opacity) {
+  return Math.min(1, Math.max(0.35, Number(opacity) || DEFAULT_CONFIG.opacity));
+}
+
 function setCompactMode(compactMode) {
   const current = readConfig();
   writeConfig({ ...current, compactMode: Boolean(compactMode) });
   applyCompactMode(Boolean(compactMode));
   updateTray();
   return publicConfig();
+}
+
+function previewOpacity(opacity) {
+  const nextOpacity = normalizeOpacity(opacity);
+  if (win && !win.isDestroyed()) win.setOpacity(nextOpacity);
+  return nextOpacity;
 }
 
 ipcMain.handle('config:get', () => publicConfig());
@@ -526,6 +547,7 @@ ipcMain.handle('config:save', (_event, patch) => {
 ipcMain.handle('balances:refresh', refreshBalances);
 ipcMain.handle('servers:refresh', refreshServers);
 ipcMain.handle('window:compact', (_event, compactMode) => setCompactMode(compactMode));
+ipcMain.handle('window:opacity-preview', (_event, opacity) => previewOpacity(opacity));
 ipcMain.handle('window:hide', hideWindow);
 ipcMain.handle('window:quit', () => app.quit());
 

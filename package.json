@@ -1,6 +1,6 @@
 {
   "name": "balance-float",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Windows floating balance checker for DeepSeek and Vultr.",
   "main": "src/main.js",
   "author": "Codex",

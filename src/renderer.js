@@ -87,11 +87,11 @@ function updateCompactSummary() {
   }).length;
   if (!balanceItems.length && !serverItems.length) {
     $('compactPrimary').textContent = '未刷新';
-    $('compactSecondary').textContent = '点击刷新';
+    $('compactSecondary').textContent = '';
     return;
   }
-  $('compactPrimary').textContent = `${okBalances}/${balanceItems.length || 0} 余额 · ${serverItems.length} 状态`;
-  $('compactSecondary').textContent = serverProblems ? `${serverProblems} 项异常或未知` : '状态正常';
+  $('compactPrimary').textContent = `${okBalances}/${balanceItems.length || 0} · ${serverItems.length}`;
+  $('compactSecondary').textContent = serverProblems ? `${serverProblems} 异常` : '正常';
 }
 
 async function loadConfig() {
@@ -137,6 +137,9 @@ $('refresh').addEventListener('click', async () => {
 $('hide').addEventListener('click', () => window.balanceApp.hide());
 $('quit').addEventListener('click', () => window.balanceApp.quit());
 $('settingsToggle').addEventListener('click', () => $('settings').classList.toggle('hidden'));
+$('opacity').addEventListener('input', () => {
+  window.balanceApp.previewOpacity(Number($('opacity').value));
+});
 $('compactToggle').addEventListener('click', async () => {
   const config = await window.balanceApp.setCompactMode(!compactMode);
   $('compactMode').checked = config.compactMode;

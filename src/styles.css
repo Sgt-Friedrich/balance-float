@@ -203,6 +203,78 @@ button:hover {
   font-size: 18px;
 }
 
+.balance-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.balance-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.balance-main .balance-text p {
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.usage-rings {
+  display: grid;
+  grid-template-columns: repeat(2, 42px);
+  column-gap: 6px;
+  row-gap: 16px;
+  padding-bottom: 10px;
+  flex: 0 0 auto;
+}
+
+.usage-ring {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, rgba(22, 26, 28, 0.98) 0 58%, transparent 59%),
+    conic-gradient(var(--ring) calc(var(--pct) * 1%), rgba(255, 255, 255, 0.14) 0);
+}
+
+.usage-ring::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ring-reset {
+  position: relative;
+  z-index: 1;
+  max-width: 34px;
+  overflow: hidden;
+  color: #f7f4ec;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ring-label {
+  position: absolute;
+  right: 0;
+  bottom: -11px;
+  left: 0;
+  color: #b9c5c1;
+  font-size: 8px;
+  line-height: 1;
+  text-align: center;
+}
+
 .server p {
   margin: 8px 0 5px;
   color: #f7f4ec;

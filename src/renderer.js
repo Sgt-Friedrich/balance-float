@@ -21,6 +21,36 @@ function escapeHtml(value) {
     .replaceAll("'", '&#039;');
 }
 
+function clampPercent(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  return Math.max(0, Math.min(100, number));
+}
+
+function ringColor(remaining) {
+  if (remaining <= 15) return '#ff766f';
+  if (remaining <= 35) return '#f6c76f';
+  return '#61d394';
+}
+
+function renderUsageRing(entry) {
+  const remaining = clampPercent(entry?.remainingPercent);
+  if (remaining === null) return '';
+  const resetLabel = entry?.resetLabel || 'n/a';
+  const rounded = Math.round(remaining);
+  return `
+    <div class="usage-ring" style="--pct: ${rounded}; --ring: ${ringColor(remaining)};" title="${escapeHtml(entry.label)} remaining ${rounded}%">
+      <span class="ring-reset">${escapeHtml(resetLabel)}</span>
+      <span class="ring-label">${escapeHtml(entry.label)}</span>
+    </div>
+  `;
+}
+
+function renderUsageRings(item) {
+  const rings = (item.usageRings || []).map(renderUsageRing).filter(Boolean).join('');
+  return rings ? `<div class="usage-rings">${rings}</div>` : '';
+}
+
 function render(payload) {
   latestBalances = payload;
   const balances = $('balances');
@@ -41,8 +71,13 @@ function render(payload) {
         </span>
         <span>${item.available ? '可用' : '不可用'}</span>
       </div>
-      <p>${escapeHtml(item.primary)}</p>
-      <small>${escapeHtml(item.detail || '').replaceAll('\n', '<br>')}</small>
+      <div class="balance-main">
+        <div class="balance-text">
+          <p>${escapeHtml(item.primary).replaceAll('\n', '<br>')}</p>
+          ${item.detail ? `<small>${escapeHtml(item.detail).replaceAll('\n', '<br>')}</small>` : ''}
+        </div>
+        ${renderUsageRings(item)}
+      </div>
     `;
     balances.appendChild(card);
   });

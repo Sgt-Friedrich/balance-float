@@ -2,6 +2,13 @@ const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, safeStorag
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { execFile } = require('child_process');
+const {
+  buildClaudeCodeUsage,
+  buildCodexCombinedUsage,
+  claudeUsagePath,
+  readJsonSafe
+} = require('./agent-usage');
 
 const CONFIG_NAME = 'config.json';
 const DEFAULT_CONFIG = {
@@ -34,6 +41,9 @@ let tray;
 let win;
 let lastPayload = null;
 let refreshTimer;
+let agentRefreshTimer;
+let agentPollTimer;
+let agentWatchers = [];
 
 const appIcon = () => {
   const iconPath = path.join(__dirname, '..', 'assets', 'icon.png');
@@ -90,6 +100,49 @@ function maskKey(key) {
   if (!key) return '';
   if (key.length <= 8) return '********';
   return `${key.slice(0, 4)}...${key.slice(-4)}`;
+}
+
+function walkRecentFiles(root, predicate, limit = 60) {
+  const out = [];
+  const stack = [root];
+  while (stack.length && out.length < 1000) {
+    const current = stack.pop();
+    let entries = [];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+      } else if (predicate(entry.name)) {
+        try {
+          const stat = fs.statSync(fullPath);
+          out.push({ path: fullPath, mtimeMs: stat.mtimeMs });
+        } catch {}
+      }
+    }
+  }
+  return out.sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, limit);
+}
+
+function readFileTail(filePath, maxBytes = 2 * 1024 * 1024) {
+  try {
+    const stat = fs.statSync(filePath);
+    const length = Math.min(stat.size, maxBytes);
+    const buffer = Buffer.alloc(length);
+    const fd = fs.openSync(filePath, 'r');
+    try {
+      fs.readSync(fd, buffer, 0, length, stat.size - length);
+    } finally {
+      fs.closeSync(fd);
+    }
+    return buffer.toString('utf8');
+  } catch {
+    return '';
+  }
 }
 
 function formatUsd(value) {
@@ -385,17 +438,17 @@ async function refreshServers() {
     }
     items.push({
       provider: jobNames[index],
-      name: '实例列表',
-      status: '获取失败',
+      name: 'Instance list',
+      status: 'Fetch failed',
       region: '',
       ip: '',
-      detail: result.reason?.message || '未知错误'
+      detail: result.reason?.message || 'Unknown error'
     });
   });
   const payload = {
     checkedAt,
     items,
-    message: jobs.length === 1 ? '填写 Vultr / 阿里云 / 腾讯云密钥后可查看云服务器实例' : ''
+    message: jobs.length === 1 ? 'Add Vultr / Aliyun / Tencent credentials to view cloud servers' : ''
   };
   if (win && !win.isDestroyed()) win.webContents.send('servers:update', payload);
   return payload;
@@ -435,31 +488,159 @@ async function fetchVultr(key) {
   };
 }
 
+function findLatestCodexRateLimits(match = () => true) {
+  const roots = [
+    path.join(app.getPath('home'), '.codex', 'sessions'),
+    path.join(app.getPath('home'), '.codex', 'archived_sessions')
+  ].filter((dir) => fs.existsSync(dir));
+  const files = roots.flatMap((root) => walkRecentFiles(root, (name) => name.endsWith('.jsonl'), 80))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    .slice(0, 120);
+
+  for (const file of files) {
+    const text = readFileTail(file.path);
+    if (!text.includes('"rate_limits"')) continue;
+    const lines = text.split(/\r?\n/).reverse();
+    for (const line of lines) {
+      if (!line.includes('"rate_limits"')) continue;
+      try {
+        const event = JSON.parse(line);
+        const rateLimits = event?.payload?.rate_limits;
+        if ((rateLimits?.primary || rateLimits?.secondary) && match(rateLimits, event)) {
+          return { timestamp: event.timestamp, source: file.path, rate_limits: rateLimits };
+        }
+      } catch {}
+    }
+  }
+  return null;
+}
+
+function findLatestCodexModelRun(modelSlug) {
+  const roots = [
+    path.join(app.getPath('home'), '.codex', 'sessions'),
+    path.join(app.getPath('home'), '.codex', 'archived_sessions')
+  ].filter((dir) => fs.existsSync(dir));
+  const files = roots.flatMap((root) => walkRecentFiles(root, (name) => name.endsWith('.jsonl'), 80))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    .slice(0, 120);
+
+  for (const file of files) {
+    const text = readFileTail(file.path);
+    if (!text.includes(modelSlug)) continue;
+    const lines = text.split(/\r?\n/).reverse();
+    for (const line of lines) {
+      if (!line.includes(modelSlug)) continue;
+      try {
+        const event = JSON.parse(line);
+        if (event?.payload?.model === modelSlug || JSON.stringify(event).includes(modelSlug)) {
+          return { timestamp: event.timestamp, source: file.path };
+        }
+      } catch {}
+    }
+  }
+  return null;
+}
+
+function readCodexModel() {
+  try {
+    const config = fs.readFileSync(path.join(app.getPath('home'), '.codex', 'config.toml'), 'utf8');
+    return config.match(/^\s*model\s*=\s*"([^"]+)"/m)?.[1] || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+function runPowerShellJson(script, timeoutMs = 3500) {
+  return new Promise((resolve) => {
+    const child = execFile(
+      'powershell.exe',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
+      { windowsHide: true, timeout: timeoutMs, maxBuffer: 1024 * 256 },
+      (error, stdout) => {
+        if (error) {
+          resolve(null);
+          return;
+        }
+        try {
+          resolve(JSON.parse(stdout));
+        } catch {
+          resolve(null);
+        }
+      }
+    );
+    child.unref?.();
+  });
+}
+
+async function getAgentProcessStats() {
+  const script = `
+$items = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -match '^(Codex|codex|claude)$' } | ForEach-Object {
+  [pscustomobject]@{ name = $_.ProcessName; mem = [math]::Round($_.WorkingSet64 / 1MB, 1) }
+}
+$codex = @($items | Where-Object { $_.name -match '^(Codex|codex)$' })
+$claude = @($items | Where-Object { $_.name -eq 'claude' })
+$claudeCli = $null -ne (Get-Command claude -ErrorAction SilentlyContinue)
+[pscustomobject]@{
+  codexCount = $codex.Count
+  claudeCount = $claude.Count
+  claudeCliFound = $claudeCli
+  codexMemMb = [math]::Round((($codex | Measure-Object -Property mem -Sum).Sum), 1)
+  claudeMemMb = [math]::Round((($claude | Measure-Object -Property mem -Sum).Sum), 1)
+} | ConvertTo-Json -Compress
+`;
+  return await runPowerShellJson(script) || { codexCount: 0, claudeCount: 0, codexMemMb: 0, claudeMemMb: 0 };
+}
+
+async function fetchCodexCombinedUsage() {
+  const stats = await getAgentProcessStats();
+  const shared = findLatestCodexRateLimits((rateLimits) => rateLimits?.limit_id === 'codex' && !rateLimits?.limit_name);
+  const spark = findLatestCodexRateLimits((rateLimits) => {
+    const name = String(rateLimits?.limit_name || '');
+    return rateLimits?.limit_id === 'codex_bengalfox' || /spark/i.test(name);
+  });
+  const item = buildCodexCombinedUsage({
+    shared,
+    spark,
+    sparkRun: findLatestCodexModelRun('gpt-5.3-codex-spark'),
+    model: readCodexModel()
+  });
+  return { ...item, available: Number(stats.codexCount || 0) > 0 };
+}
+
+async function fetchClaudeCodeUsage() {
+  const stats = await getAgentProcessStats();
+  const cache = readJsonSafe(claudeUsagePath(app.getPath('home')));
+  return buildClaudeCodeUsage(cache, stats);
+}
+
 async function refreshBalances() {
   const config = readConfig();
   const jobs = [];
+  const labels = [];
   if (config.deepseekKey) jobs.push(fetchDeepSeek(config.deepseekKey));
+  if (config.deepseekKey) labels.push('DeepSeek');
   if (config.vultrKey) jobs.push(fetchVultr(config.vultrKey));
+  if (config.vultrKey) labels.push('Vultr');
+  jobs.push(fetchCodexCombinedUsage());
+  labels.push('Codex / Spark');
+  jobs.push(fetchClaudeCodeUsage());
+  labels.push('Claude Code');
 
   const checkedAt = new Date().toLocaleString('zh-CN', { hour12: false });
-  if (!jobs.length) {
-    lastPayload = { checkedAt, items: [], message: '请先在设置中填写 API Key' };
-  } else {
-    const settled = await Promise.allSettled(jobs);
-    lastPayload = {
-      checkedAt,
-      items: settled.map((result, index) => {
-        if (result.status === 'fulfilled') return result.value;
-        return {
-          name: index === 0 && config.deepseekKey ? 'DeepSeek' : 'Vultr',
-          ok: false,
-          available: false,
-          primary: '获取失败',
-          detail: result.reason?.message || '未知错误'
-        };
-      })
-    };
-  }
+  const settled = await Promise.allSettled(jobs);
+  lastPayload = {
+    checkedAt,
+    items: settled.map((result, index) => {
+      if (result.status === 'fulfilled') return result.value;
+      return {
+        name: labels[index] || 'Agent',
+        ok: false,
+        available: false,
+        primary: 'Fetch failed',
+        detail: result.reason?.message || 'Unknown error'
+      };
+    })
+  };
   if (win && !win.isDestroyed()) win.webContents.send('balances:update', lastPayload);
   updateTray();
   return lastPayload;
@@ -557,6 +738,40 @@ function scheduleRefresh(minutes) {
   refreshTimer = setInterval(refreshAll, Math.max(1, minutes) * 60 * 1000);
 }
 
+function scheduleAgentRefresh(delayMs = 1000) {
+  if (agentRefreshTimer) clearTimeout(agentRefreshTimer);
+  agentRefreshTimer = setTimeout(() => {
+    agentRefreshTimer = null;
+    refreshBalances();
+  }, delayMs);
+}
+
+function watchIfExists(filePath, options = {}) {
+  if (!fs.existsSync(filePath)) return;
+  try {
+    const watcher = fs.watch(filePath, options, () => scheduleAgentRefresh());
+    agentWatchers.push(watcher);
+  } catch {}
+}
+
+function watchAgentUsageFiles() {
+  agentWatchers.forEach((watcher) => {
+    try {
+      watcher.close();
+    } catch {}
+  });
+  agentWatchers = [];
+  const home = app.getPath('home');
+  watchIfExists(path.join(home, '.claude', 'usage-status.json'));
+  watchIfExists(path.join(home, '.codex', 'sessions'), { recursive: true });
+  watchIfExists(path.join(home, '.codex', 'archived_sessions'), { recursive: true });
+}
+
+function scheduleAgentPolling() {
+  if (agentPollTimer) clearInterval(agentPollTimer);
+  agentPollTimer = setInterval(() => scheduleAgentRefresh(0), 10000);
+}
+
 function createTray() {
   tray = new Tray(appIcon());
   tray.on('click', () => {
@@ -622,6 +837,8 @@ app.whenReady().then(() => {
   createWindow();
   createTray();
   scheduleRefresh(config.refreshMinutes);
+  watchAgentUsageFiles();
+  scheduleAgentPolling();
   app.on('activate', showWindow);
 });
 
